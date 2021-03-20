@@ -52,49 +52,57 @@ gamma = 0.9            # discount factor for RL bellman eqn
 epsilon = 0.5          # w/ P = epsilon, choose previously thought to be best action, otherwise explore
 headless = True        # rendering while training or not
 
+loading = False
+serialize_path = "test.weights"
+
 # ====== MAIN STUFF
 model = NeuralNetwork()
 model.cuda()
 
-optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+if loading:
+    model.load_state_dict(torch.load(serialize_path))
+else:
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
-writer = SummaryWriter()
+    writer = SummaryWriter()
 
-done = True
-for step in range(total_steps):
-    if done:
-        state = env.reset()
+    done = True
+    for step in range(total_steps):
+        if done:
+            state = env.reset()
 
-    qs = model(to_tensor(state))
-    # if random.random() < epsilon:
-    action = np.argmax(qs.cpu().detach().numpy())
-    # else:
-    #     action = env.actiox_space.sample()
-    
-    next_state, reward, done, _ = env.step(action)
-    next_qs = model(to_tensor(next_state))
-    
-    value = torch.max(qs)
-    value_next = reward + gamma * torch.max(next_qs)
-    
-    loss = loss_fn(value, value_next)
+        qs = model(to_tensor(state))
+        # if random.random() < epsilon:
+        action = np.argmax(qs.cpu().detach().numpy())
+        # else:
+        #     action = env.actiox_space.sample()
+        
+        next_state, reward, done, _ = env.step(action)
+        next_qs = model(to_tensor(next_state))
+        
+        value = torch.max(qs)
+        value_next = reward + gamma * torch.max(next_qs)
+        
+        loss = loss_fn(value, value_next)
 
-    state = next_state
+        state = next_state
 
-    # Backpropagation
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
+        # Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-    if not headless:
-        env.render()
+        if not headless:
+            env.render()
 
-    writer.add_scalar('loss', loss, step)
-    if step % 100:
-        print(f"{step} / {total_steps} ================> {loss}")
+        writer.add_scalar('loss', loss, step)
+        if step % 100:
+            print(f"{step} / {total_steps} ================> {loss}")
+
+    torch.save(model.state_dict(), serialize_path)
 
 # trial run
-env.reset()
+done = True
 for step in range(500):
     if done:
         state = env.reset()
