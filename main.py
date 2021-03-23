@@ -16,18 +16,14 @@ import numpy as np
 class NeuralNetwork(nn.Module):
     def __init__(self):
         super(NeuralNetwork, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=4)
-        self.relu1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=2)
-        self.relu2 = nn.ReLU()
+        self.conv = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=4)
+        self.tanh = nn.Tanh()
         self.flatten = nn.Flatten()
-        self.linear = nn.Linear(708 * 252, 7)
+        self.linear = nn.Linear(179883, 7)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.relu1(x)
-        x = self.conv2(x)
-        x = self.relu2(x)
+        x = self.conv(x)
+        x = self.tanh(x)
         x = self.flatten(x)
         x = self.linear(x)
         return x
@@ -36,7 +32,7 @@ def loss_fn(output, target):
     return (output - target)**2
 
 def to_tensor(state):
-    return torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32')).cuda()
+    return torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32'))#.cuda()
 
 env = gym_super_mario_bros.make('SuperMarioBros-v0')
 env = JoypadSpace(env, SIMPLE_MOVEMENT)
@@ -47,22 +43,22 @@ actions (7): 'NOOP', 'right', 'right A', 'right B', 'right A B', 'A', 'left'
 """
 
 # ====== hyperparameters
-total_steps = 30000    # how many steps to run before testing
+total_steps = 3000    # how many steps to run before testing
 learning_rate = 0.01   # LR for NN param upate
 gamma = 0.9            # discount factor for RL bellman eqn
 epsilon = 0.5          # w/ P = epsilon, choose previously thought to be best action, otherwise explore
 headless = True        # rendering while training or not
 
-loading = True
+loading = False
 serialize_path = "test.weights"
 
 # ====== MAIN STUFF
 model = NeuralNetwork()
-model.cuda()
+# model.cuda()
 
 if loading:
     model.load_state_dict(torch.load(serialize_path))
-# else:
+else:
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
     writer = SummaryWriter()
@@ -92,6 +88,8 @@ if loading:
         value = qs[0, action]
         value_next = reward + gamma * torch.max(next_qs)
         
+        print(value)
+        print(value_next)
         loss = loss_fn(value, value_next)
 
         state = copy.deepcopy(next_state)
@@ -113,9 +111,8 @@ if loading:
     for step in range(500):
         if done:
             state = env.reset()
-        qs = model(to_tensor(state)).cpu().detach().numpy()
+        qs = model(to_tensor(state)).detach().numpy()
         print(qs)
-
         action = np.argmax(qs)
         state, _, done, _ = env.step(action)
         env.render()
