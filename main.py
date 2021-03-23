@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from copy import copy
+import copy
 import numpy as np
 
 from nes_py.wrappers import JoypadSpace
@@ -33,7 +33,7 @@ class NeuralNetwork(nn.Module):
         return x
 
 def loss_fn(output, target):
-    return torch.max((output - target)**2)
+    return (output - target)**2
 
 def to_tensor(state):
     return torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32')).cuda()
@@ -47,13 +47,13 @@ actions (7): 'NOOP', 'right', 'right A', 'right B', 'right A B', 'A', 'left'
 """
 
 # ====== hyperparameters
-total_steps = 10000    # how many steps to run before testing
+total_steps = 30000    # how many steps to run before testing
 learning_rate = 0.01   # LR for NN param upate
 gamma = 0.9            # discount factor for RL bellman eqn
 epsilon = 0.5          # w/ P = epsilon, choose previously thought to be best action, otherwise explore
-headless = False        # rendering while training or not
+headless = True        # rendering while training or not
 
-loading = False
+loading = True
 serialize_path = "test.weights"
 
 # ====== MAIN STUFF
@@ -62,7 +62,7 @@ model.cuda()
 
 if loading:
     model.load_state_dict(torch.load(serialize_path))
-else:
+# else:
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
     writer = SummaryWriter()
@@ -71,6 +71,8 @@ else:
     for step in range(total_steps):
         if done or keyboard.is_pressed('r'):
             state = env.reset()
+        if keyboard.is_pressed('b'):
+            break
 
         if keyboard.is_pressed('a'):
             epsilon -= 0.05
@@ -92,7 +94,7 @@ else:
         
         loss = loss_fn(value, value_next)
 
-        state = next_state
+        state = copy.deepcopy(next_state)
 
         # Backpropagation
         optimizer.zero_grad()
@@ -106,16 +108,18 @@ else:
         if step % 100:
             print(f"{step} / {total_steps} ================> {loss}")
 
-    torch.save(model.state_dict(), serialize_path)
+    # trial run
+    done = True
+    for step in range(500):
+        if done:
+            state = env.reset()
+        qs = model(to_tensor(state)).cpu().detach().numpy()
+        print(qs)
 
-# trial run
-done = True
-for step in range(500):
-    if done:
-        state = env.reset()
-    qs = model(to_tensor(state)).cpu().detach().numpy()
-    action = np.argmax(qs)
-    state, reward, done, _ = env.step(action)
-    env.render()
+        action = np.argmax(qs)
+        state, _, done, _ = env.step(action)
+        env.render()
+
+    torch.save(model.state_dict(), serialize_path)
 
 env.close()
