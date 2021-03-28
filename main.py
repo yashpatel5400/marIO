@@ -31,6 +31,7 @@ class NeuralNetwork(nn.Module):
         return x
 
 def loss_fn(output, target):
+    # TODO - why not sqrt?
     return (output - target)**2
 
 def to_tensor(state):
@@ -46,7 +47,7 @@ actions (7): 'NOOP', 'right', 'right A', 'right B', 'right A B', 'A', 'left'
 
 # ====== hyperparameters
 total_steps = 3000    # how many steps to run before testing
-learning_rate = 0.01   # LR for NN param upate
+learning_rate = 0.000001   # LR for NN param update
 gamma = 0.9            # discount factor for RL bellman eqn
 epsilon = 0.5          # w/ P = epsilon, choose previously thought to be best action, otherwise explore
 headless = True        # rendering while training or not
@@ -78,20 +79,28 @@ else:
             epsilon += 0.05
         epsilon = max(min(epsilon, 1.0), 0.0)
 
+        # 1: Choose an action
+
         qs = model(to_tensor(state))
         if random.random() < epsilon:
             action = np.argmax(qs.cpu().detach().numpy())
         else:
             action = env.action_space.sample()
-        
+
+        # 2: Do the action
+
         next_state, reward, done, _ = env.step(action)
         next_qs = model(to_tensor(next_state))
-        
+
+        # 3: Compute delta - actual reward minus expected reward
+        # - Use this as loss to update our net (which is our q-store)
+
         value = qs[0, action]
         value_next = reward + gamma * torch.max(next_qs)
-        
-        print(value)
-        print(value_next)
+
+        if step % 100 == 0:
+            print(value)
+            print(value_next)
         loss = loss_fn(value, value_next)
 
         state = copy.deepcopy(next_state)
@@ -105,7 +114,7 @@ else:
             env.render()
 
         writer.add_scalar('loss', loss, step)
-        if step % 100:
+        if step % 100 == 0:
             print(f"{step} / {total_steps} ================> {loss}")
 
     # trial run
