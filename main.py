@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 import torch
-from torch import nn
+from typing import List
+from torch import nn, Tensor
 import copy
 import numpy as np
 
@@ -12,8 +13,10 @@ from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 import random
 import keyboard
 
+# Run `tensorboard --logdir=runs` locally
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
+
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
@@ -30,15 +33,27 @@ class NeuralNetwork(nn.Module):
         x = self.linear(x)
         return x
 
-def loss_fn(output, target):
-    # TODO - why not sqrt?
-    return (output - target)**2
+
+def loss_fn(outputs: List[Tensor], targets: List[Tensor]) -> List[Tensor]:
+    """
+    Effectively computes mean squared error
+    - I could not figure out how to get torch to work properly, so this is kind of a hacky solution
+
+    Ideally, I would want to do:
+    `return ((Tensor(outputs) - Tensor(targets))**2).mean()`
+    ...but when we call loss.backward(), it gives the following error:
+    `RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn`
+    - Any idea how to fix this? Please let me know!
+    """
+    return [(output - target) ** 2 / len(outputs) for output, target in zip(outputs, targets)]
+
 
 def to_tensor(state):
-    return torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32'))#.cuda()
+    return torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32'))  # .cuda()
 
-env = gym_super_mario_bros.make('SuperMarioBros-v0')
-env = JoypadSpace(env, SIMPLE_MOVEMENT)
+def make_environment():
+    env = gym_super_mario_bros.make('SuperMarioBros-v0')
+    return JoypadSpace(env, SIMPLE_MOVEMENT)
 
 """
 from: https://livebook.manning.com/concept/deep-learning/super-mario-bros
@@ -46,22 +61,30 @@ actions (7): 'NOOP', 'right', 'right A', 'right B', 'right A B', 'A', 'left'
 """
 
 # ====== hyperparameters
-total_steps = 3000    # how many steps to run before testing
-learning_rate = 0.000001   # LR for NN param update
-gamma = 0.9            # discount factor for RL bellman eqn
-epsilon = 0.5          # w/ P = epsilon, choose previously thought to be best action, otherwise explore
-headless = True        # rendering while training or not
+# How many examples per batch. In practice, we simultaneously run `batch_size` instances of the game
+batch_size = 20
+total_steps: int = 100  # how many steps to run before testing
+learning_rate = 0.000001  # LR for NN param update
+gamma = 0.9  # discount factor for RL bellman eqn
+epsilon = 0.5  # w/ P = epsilon, choose previously thought to be best action, otherwise explore
+headless = True  # rendering while training or not
 
 loading = False
 serialize_path = "test.weights"
+trial_run = True
+
+print_period = 20  # How many steps to print output
 
 # ====== MAIN STUFF
+
 model = NeuralNetwork()
 # model.cuda()
 
 if loading:
     model.load_state_dict(torch.load(serialize_path))
 else:
+    envs = [make_environment() for _i in range(batch_size)]
+
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
     writer = SummaryWriter()
@@ -69,7 +92,7 @@ else:
     done = True
     for step in range(total_steps):
         if done or keyboard.is_pressed('r'):
-            state = env.reset()
+            states = [env.reset() for env in envs]
         if keyboard.is_pressed('b'):
             break
 
@@ -81,43 +104,45 @@ else:
 
         # 1: Choose an action
 
-        qs = model(to_tensor(state))
-        if random.random() < epsilon:
-            action = np.argmax(qs.cpu().detach().numpy())
-        else:
-            action = env.action_space.sample()
+        qs_ls = [model(to_tensor(state)) for state in states]
+        actions = [
+            np.argmax(qs.cpu().detach().numpy()) if random.random() < epsilon else env.action_space.sample()
+            for env, qs in zip(envs, qs_ls)
+        ]
 
         # 2: Do the action
 
-        next_state, reward, done, _ = env.step(action)
-        next_qs = model(to_tensor(next_state))
+        next_states, rewards, dones, _ = zip(*[env.step(action) for env, action in zip(envs, actions)])
+        next_qs_ls = [model(to_tensor(next_state)) for next_state in next_states]
 
         # 3: Compute delta - actual reward minus expected reward
         # - Use this as loss to update our net (which is our q-store)
 
-        value = qs[0, action]
-        value_next = reward + gamma * torch.max(next_qs)
+        values = [qs[0, action] for qs, action in zip(qs_ls, actions)]
+        values_next = [reward + gamma * torch.max(next_qs) for next_qs, reward in zip(next_qs_ls, rewards)]
 
-        if step % 100 == 0:
-            print(value)
-            print(value_next)
-        loss = loss_fn(value, value_next)
+        if step % print_period == 0:
+            print(values)
+            print(values_next)
+        # convert `values` and `values_next` from list of tensors to tensor
+        losses = loss_fn(values, values_next)
 
-        state = copy.deepcopy(next_state)
+        states = copy.deepcopy(next_states)
 
         # Backpropagation
         optimizer.zero_grad()
-        loss.backward()
+        [loss.backward() for loss in losses]
         optimizer.step()
 
         if not headless:
-            env.render()
+            envs[0].render()  # Only render one of the games we are running
 
-        writer.add_scalar('loss', loss, step)
-        if step % 100 == 0:
-            print(f"{step} / {total_steps} ================> {loss}")
+        writer.add_scalar('loss', sum(losses), step)
+        if step % print_period == 0:
+            print(f"{step} / {total_steps} ================> {sum(losses)}")
 
-    # trial run
+if trial_run:
+    env = make_environment()
     done = True
     for step in range(500):
         if done:
@@ -130,4 +155,4 @@ else:
 
     torch.save(model.state_dict(), serialize_path)
 
-env.close()
+    env.close()
