@@ -31,34 +31,13 @@ class NeuralNetwork(nn.Module):
 def loss_fn(output, target):
     return (output - target)**2
 
-def to_tensor(state):
-    return torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32'))#.cuda()
+def to_tensor(state, gpu):
+    tensor = torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32'))
+    if gpu:
+        return tensor.cuda()
+    return tensor
 
-env = gym_super_mario_bros.make('SuperMarioBros-v0')
-env = JoypadSpace(env, SIMPLE_MOVEMENT)
-
-"""
-from: https://livebook.manning.com/concept/deep-learning/super-mario-bros
-actions (7): 'NOOP', 'right', 'right A', 'right B', 'right A B', 'A', 'left'
-"""
-
-# ====== hyperparameters
-total_steps = 3000    # how many steps to run before testing
-learning_rate = 0.01   # LR for NN param upate
-gamma = 0.9            # discount factor for RL bellman eqn
-epsilon = 0.5          # w/ P = epsilon, choose previously thought to be best action, otherwise explore
-headless = True        # rendering while training or not
-
-loading = False
-serialize_path = "test.weights"
-
-# ====== MAIN STUFF
-model = NeuralNetwork()
-# model.cuda()
-
-if loading:
-    model.load_state_dict(torch.load(serialize_path))
-else:
+def train(model, total_steps, gpu, env, learning_rate, gamma, epsilon, headless):
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
     writer = SummaryWriter()
@@ -76,20 +55,21 @@ else:
             epsilon += 0.05
         epsilon = max(min(epsilon, 1.0), 0.0)
 
-        qs = model(to_tensor(state))
+        qs = model(to_tensor(state, gpu))
         if random.random() < epsilon:
-            action = np.argmax(qs.cpu().detach().numpy())
+            prediction = model(to_tensor(state, gpu))
+            if gpu:
+                prediction = prediction.cpu()
+            action = np.argmax(prediction.detach().numpy())
         else:
             action = env.action_space.sample()
         
         next_state, reward, done, _ = env.step(action)
-        next_qs = model(to_tensor(next_state))
+        next_qs = model(to_tensor(next_state, gpu))
         
         value = qs[0, action]
         value_next = reward + gamma * torch.max(next_qs)
         
-        print(value)
-        print(value_next)
         loss = loss_fn(value, value_next)
 
         state = copy.deepcopy(next_state)
@@ -103,20 +83,58 @@ else:
             env.render()
 
         writer.add_scalar('loss', loss, step)
-        if step % 100:
+        if step % 100 == 0:
             print(f"{step} / {total_steps} ================> {loss}")
 
-    # trial run
+    torch.save(model.state_dict(), serialize_path)
+
+def test(model, testing_steps, gpu, env):
     done = True
-    for step in range(500):
+    for step in range(testing_steps):
         if done:
             state = env.reset()
-        qs = model(to_tensor(state)).detach().numpy()
-        print(qs)
+        
+        prediction = model(to_tensor(state, gpu))
+        if gpu:
+            prediction = prediction.cpu()
+        qs = prediction.detach().numpy()
         action = np.argmax(qs)
         state, _, done, _ = env.step(action)
         env.render()
 
-    torch.save(model.state_dict(), serialize_path)
+"""
+from: https://livebook.manning.com/concept/deep-learning/super-mario-bros
+actions (7): 'NOOP', 'right', 'right A', 'right B', 'right A B', 'A', 'left'
+"""
+
+# ====== hyperparameters
+gpu = False                      # whether to run on GPU
+loading = False                  # whether to load whatever's on disk
+perform_train = False           # whether to train from the current state (either vanilla or whatever's loaded)
+serialize_path = "test.weights" # where to load/save from/to
+
+# ====== hyperparameters
+training_steps = 3000     # how many steps to run before training
+testing_steps = 300        # how many steps to run after training
+learning_rate = 0.000001   # LR for NN param upate
+gamma = 0.9            # discount factor for RL bellman eqn
+epsilon = 0.5          # w/ P = epsilon, choose previously thought to be best action, otherwise explore
+headless = True        # rendering while training or not
+
+# ====== MAIN STUFF
+model = NeuralNetwork()
+if gpu:
+    model.cuda()
+
+env = gym_super_mario_bros.make('SuperMarioBros-v0')
+env = JoypadSpace(env, SIMPLE_MOVEMENT)
+
+if loading:
+    model.load_state_dict(torch.load(serialize_path))
+
+if perform_train:
+    train(model, training_steps, gpu, env, learning_rate, gamma, epsilon, headless)
+
+test(model, testing_steps, gpu, env)
 
 env.close()
