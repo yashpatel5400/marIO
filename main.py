@@ -95,9 +95,9 @@ def train(model, total_steps, gpu, env, learning_rate, gamma, epsilon, headless)
         values = [qs[0, action] for qs, action in zip(qs_ls, actions)]
         values_next = [reward + gamma * torch.max(next_qs) for next_qs, reward in zip(next_qs_ls, rewards)]
 
-        if step % print_period == 0:
-            print(values)
-            print(values_next)
+        # if step % print_period == 0:
+        #     print(values)
+        #     print(values_next)
         # convert `values` and `values_next` from list of tensors to tensor
         losses = loss_fn(values, values_next)
 
@@ -125,9 +125,7 @@ def test(model, testing_steps, gpu, env):
             state = env.reset()
 
         prediction = model(to_tensor(state, gpu))
-        if gpu:
-            prediction = prediction.cpu()
-        qs = prediction.detach().numpy()
+        qs = prediction.cpu().detach().numpy()
         
         action = np.argmax(qs)
         state, _, done, _ = env.step(action)
@@ -141,7 +139,7 @@ actions (7): 'NOOP', 'right', 'right A', 'right B', 'right A B', 'A', 'left'
 """
 
 gpu = True                      # whether to run on GPU
-loading = False                 # whether to load whatever's on disk
+loading = True                 # whether to load whatever's on disk
 perform_train = True            # whether to train from the current state (either vanilla or whatever's loaded)
 trial_run = True                # whether to do test run
 serialize_path = "test.weights" # where to load/save from/to
