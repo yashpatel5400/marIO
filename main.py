@@ -63,10 +63,12 @@ def train(model, total_steps, gpu, env, learning_rate, gamma, epsilon, headless)
 
     writer = SummaryWriter()
 
-    done = True
+    dones = [True for _ in range(batch_size)]
+    states = [None for _ in range(batch_size)]
     for step in range(total_steps):
-        if done or keyboard.is_pressed('r'):
-            states = [env.reset() for env in envs]
+        for i, done in enumerate(dones):
+            if done or keyboard.is_pressed('r'):
+                states[i] = envs[i].reset()
         if keyboard.is_pressed('b'):
             break
 
@@ -101,7 +103,7 @@ def train(model, total_steps, gpu, env, learning_rate, gamma, epsilon, headless)
         # convert `values` and `values_next` from list of tensors to tensor
         losses = loss_fn(values, values_next)
 
-        states = copy.deepcopy(next_states)
+        states = list(next_states)
 
         # Backpropagation
         optimizer.zero_grad()
@@ -139,7 +141,7 @@ actions (7): 'NOOP', 'right', 'right A', 'right B', 'right A B', 'A', 'left'
 """
 
 gpu = True                      # whether to run on GPU
-loading = True                 # whether to load whatever's on disk
+loading = False                 # whether to load whatever's on disk
 perform_train = True            # whether to train from the current state (either vanilla or whatever's loaded)
 trial_run = True                # whether to do test run
 serialize_path = "test.weights" # where to load/save from/to
