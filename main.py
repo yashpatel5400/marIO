@@ -136,6 +136,7 @@ def test(model, testing_steps, gpu):
     for step in range(testing_steps):
         if done:
             state = env.reset()
+            print("Failed")
 
         prediction = model(to_tensor(state, gpu))
         qs = prediction.cpu().detach().numpy()
@@ -152,8 +153,8 @@ actions (7): 'NOOP', 'right', 'right A', 'right B', 'right A B', 'A', 'left'
 """
 
 gpu = True                      # whether to run on GPU
-loading = False                 # whether to load whatever's on disk
-perform_train = True            # whether to train from the current state (either vanilla or whatever's loaded)
+loading = True                 # whether to load whatever's on disk
+perform_train = False            # whether to train from the current state (either vanilla or whatever's loaded)
 trial_run = True                # whether to do test run
 serialize_path = "test.weights" # where to load/save from/to
 print_period = 20  # How many steps to print output
@@ -163,7 +164,7 @@ print_period = 20  # How many steps to print output
 # How many examples per batch. In practice, we simultaneously run `batch_size` instances of the game
 batch_size = 25
 training_steps = 1_000    # how many steps to run before testing
-testing_steps = 100       # how many steps to run before testing
+testing_steps = 200       # how many steps to run before testing
 learning_rate = 0.000001  # LR for NN param update
 gamma = 0.9               # discount factor for RL bellman eqn
 epsilon = 0.5             # w/ P = epsilon, choose previously thought to be best action, otherwise explore
