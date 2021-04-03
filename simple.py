@@ -78,17 +78,11 @@ def train(model, total_steps, gpu, learning_rate, gamma, epsilon, headless):
 
     done = True
     state = None
-    for step in range(total_steps):
-        if done or keyboard.is_pressed('r'):
-            state  = env.reset()    
-        if keyboard.is_pressed('b'):
-            break
+    loss = nn.MSELoss()
 
-        if keyboard.is_pressed('a'):
-            epsilon -= 0.05
-        elif keyboard.is_pressed('d'):
-            epsilon += 0.05
-        epsilon = max(min(epsilon, 1.0), 0.0)
+    for step in range(total_steps):
+        if done:
+            state  = env.reset()    
 
         # 1: Choose an action
 
@@ -106,21 +100,22 @@ def train(model, total_steps, gpu, learning_rate, gamma, epsilon, headless):
         values = qs[0, action]
         values_next = reward + gamma * torch.max(next_qs)
 
-        loss = loss_fn(values, values_next)
+        # loss = loss_fn(values, values_next)
+        output = loss(values, values_next)
         state = next_state
 
         # Backpropagation
         optimizer.zero_grad()
-        loss.backward()
+        output.backward()
         optimizer.step()
 
         if not headless:
             env.render()  # Only render one of the games we are running
 
-        writer.add_scalar('loss', loss, step)
+        writer.add_scalar('loss', output, step)
         if step % print_period == 0:
-            print(f"{step} / {total_steps} ================> {loss}")
-
+            print(f"{step} / {total_steps} ================> {output}")
+    
     torch.save(model.state_dict(), serialize_path)
 
 def test(model, testing_steps, gpu):
@@ -155,13 +150,12 @@ print_period = 20  # How many steps to print output
 
 # ====== hyperparameters
 # How many examples per batch. In practice, we simultaneously run `batch_size` instances of the game
-batch_size = 1
-training_steps = 1_000    # how many steps to run before testing
+training_steps = 5_000    # how many steps to run before testing
 testing_steps = 200       # how many steps to run before testing
 learning_rate = 0.01  # LR for NN param update
 gamma = 0.9               # discount factor for RL bellman eqn
 epsilon = 0.5             # w/ P = epsilon, choose previously thought to be best action, otherwise explore
-headless = False           # rendering while training or not
+headless = True           # rendering while training or not
 
 # ====== MAIN STUFF
 
@@ -174,6 +168,9 @@ if loading:
 
 if perform_train:
     train(model, training_steps, gpu, learning_rate, gamma, epsilon, headless)
+
+if loading:
+    model.load_state_dict(torch.load(serialize_path))
 
 if trial_run:
     test(model, testing_steps, gpu)
