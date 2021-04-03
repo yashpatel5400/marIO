@@ -45,7 +45,7 @@ class NeuralNetwork(nn.Module):
         return x
 
 
-def loss_fn(outputs: List[Tensor], targets: List[Tensor]) -> List[Tensor]:
+def loss_fn(output: List[Tensor], target: List[Tensor]) -> List[Tensor]:
     """
     Effectively computes mean squared error
     - I could not figure out how to get torch to work properly, so this is kind of a hacky solution
@@ -55,7 +55,7 @@ def loss_fn(outputs: List[Tensor], targets: List[Tensor]) -> List[Tensor]:
     `RuntimeError: element 0 of tensors does not require grad and does not have a grad_fn`
     - Any idea how to fix this? Please let me know!
     """
-    return [(output - target) ** 2 / len(outputs) for output, target in zip(outputs, targets)]
+    return (output - target) ** 2
 
 def to_tensor(state, gpu):
     # tensor = torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32'))
@@ -70,18 +70,17 @@ def make_environment(env_name="CartPole-v1"):
     return gym.make(env_name)
 
 def train(model, total_steps, gpu, learning_rate, gamma, epsilon, headless):
-    envs = [make_environment() for _i in range(batch_size)]
+    env = make_environment()
 
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
     writer = SummaryWriter()
 
-    dones = [True for _ in range(batch_size)]
-    states = [None for _ in range(batch_size)]
+    done = True
+    state = None
     for step in range(total_steps):
-        for i, done in enumerate(dones):
-            if done or keyboard.is_pressed('r'):
-                states[i] = envs[i].reset()
+        if done or keyboard.is_pressed('r'):
+            state  = env.reset()    
         if keyboard.is_pressed('b'):
             break
 
@@ -93,42 +92,34 @@ def train(model, total_steps, gpu, learning_rate, gamma, epsilon, headless):
 
         # 1: Choose an action
 
-        qs_ls = [model(to_tensor(state, gpu)) for state in states]
-        actions = [
-            np.argmax(qs.cpu().detach().numpy()) if random.random() < epsilon else env.action_space.sample()
-            for env, qs in zip(envs, qs_ls)
-        ]
-
+        qs = model(to_tensor(state, gpu))
+        action = np.argmax(qs.cpu().detach().numpy()) if random.random() < epsilon else env.action_space.sample()
+        
         # 2: Do the action
 
-        next_states, rewards, dones, _ = zip(*[env.step(action) for env, action in zip(envs, actions)])
-        next_qs_ls = [model(to_tensor(next_state, gpu)) for next_state in next_states]
+        next_state, reward, done, _ = env.step(action)
+        next_qs = model(to_tensor(next_state, gpu))
 
         # 3: Compute delta - actual reward minus expected reward
         # - Use this as loss to update our net (which is our q-store)
 
-        values = [qs[0, action] for qs, action in zip(qs_ls, actions)]
-        values_next = [reward + gamma * torch.max(next_qs) for next_qs, reward in zip(next_qs_ls, rewards)]
+        values = qs[0, action]
+        values_next = reward + gamma * torch.max(next_qs)
 
-        # if step % print_period == 0:
-        #     print(values)
-        #     print(values_next)
-        # convert `values` and `values_next` from list of tensors to tensor
-        losses = loss_fn(values, values_next)
-
-        states = list(next_states)
+        loss = loss_fn(values, values_next)
+        state = next_state
 
         # Backpropagation
         optimizer.zero_grad()
-        [loss.backward() for loss in losses]
+        loss.backward()
         optimizer.step()
 
         if not headless:
-            envs[0].render()  # Only render one of the games we are running
+            env.render()  # Only render one of the games we are running
 
-        writer.add_scalar('loss', sum(losses), step)
+        writer.add_scalar('loss', loss, step)
         if step % print_period == 0:
-            print(f"{step} / {total_steps} ================> {sum(losses)}")
+            print(f"{step} / {total_steps} ================> {loss}")
 
     torch.save(model.state_dict(), serialize_path)
 
@@ -164,13 +155,13 @@ print_period = 20  # How many steps to print output
 
 # ====== hyperparameters
 # How many examples per batch. In practice, we simultaneously run `batch_size` instances of the game
-batch_size = 25
+batch_size = 1
 training_steps = 1_000    # how many steps to run before testing
 testing_steps = 200       # how many steps to run before testing
-learning_rate = 0.001  # LR for NN param update
+learning_rate = 0.01  # LR for NN param update
 gamma = 0.9               # discount factor for RL bellman eqn
 epsilon = 0.5             # w/ P = epsilon, choose previously thought to be best action, otherwise explore
-headless = True           # rendering while training or not
+headless = False           # rendering while training or not
 
 # ====== MAIN STUFF
 
