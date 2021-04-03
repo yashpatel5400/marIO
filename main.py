@@ -7,6 +7,7 @@ import copy
 import numpy as np
 
 from nes_py.wrappers import JoypadSpace
+import gym
 import gym_super_mario_bros
 from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 
@@ -17,20 +18,28 @@ import keyboard
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 
+# To avoid nondeterminism for debugging, let's seed
+# torch.manual_seed(0)
+# random.seed(0)
+# np.random.seed(0)
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
         super(NeuralNetwork, self).__init__()
-        self.conv = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=4)
-        self.tanh = nn.Tanh()
-        self.flatten = nn.Flatten()
-        self.linear = nn.Linear(179883, 7)
+        # self.conv = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=4)
+        # self.tanh = nn.Tanh()
+        # self.flatten = nn.Flatten()
+        # self.linear = nn.Linear(179883, 7)
+        self.linear1 = nn.Linear(4, 4)
+        self.linear2 = nn.Linear(4, 2)
 
     def forward(self, x):
-        x = self.conv(x)
-        x = self.tanh(x)
-        x = self.flatten(x)
-        x = self.linear(x)
+        # x = self.conv(x)
+        # x = self.tanh(x)
+        # x = self.flatten(x)
+        # x = self.linear(x)
+        x = self.linear1(x)
+        x = self.linear2(x)
         return x
 
 
@@ -47,16 +56,18 @@ def loss_fn(outputs: List[Tensor], targets: List[Tensor]) -> List[Tensor]:
     return [(output - target) ** 2 / len(outputs) for output, target in zip(outputs, targets)]
 
 def to_tensor(state, gpu):
-    tensor = torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32'))
+    # tensor = torch.from_numpy((state.copy().reshape((1, 3, 240, 256)) / 255).astype('float32'))
+    tensor = torch.from_numpy((state.copy().reshape((1, 4))).astype('float32'))
     if gpu:
         return tensor.cuda()
     return tensor
 
-def make_environment():
-    env = gym_super_mario_bros.make('SuperMarioBros-v0')
-    return JoypadSpace(env, SIMPLE_MOVEMENT)
+def make_environment(env_name="CartPole-v1"):
+    # env = gym_super_mario_bros.make('SuperMarioBros-v0')
+    # return JoypadSpace(env, SIMPLE_MOVEMENT)
+    return gym.make(env_name)
 
-def train(model, total_steps, gpu, env, learning_rate, gamma, epsilon, headless):
+def train(model, total_steps, gpu, learning_rate, gamma, epsilon, headless):
     envs = [make_environment() for _i in range(batch_size)]
 
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
@@ -119,7 +130,7 @@ def train(model, total_steps, gpu, env, learning_rate, gamma, epsilon, headless)
 
     torch.save(model.state_dict(), serialize_path)
 
-def test(model, testing_steps, gpu, env):
+def test(model, testing_steps, gpu):
     env = make_environment()
     done = True
     for step in range(testing_steps):
@@ -152,7 +163,7 @@ print_period = 20  # How many steps to print output
 # How many examples per batch. In practice, we simultaneously run `batch_size` instances of the game
 batch_size = 25
 training_steps = 1_000    # how many steps to run before testing
-testing_steps = 500       # how many steps to run before testing
+testing_steps = 100       # how many steps to run before testing
 learning_rate = 0.000001  # LR for NN param update
 gamma = 0.9               # discount factor for RL bellman eqn
 epsilon = 0.5             # w/ P = epsilon, choose previously thought to be best action, otherwise explore
@@ -164,14 +175,11 @@ model = NeuralNetwork()
 if gpu:
     model.cuda()
 
-env = gym_super_mario_bros.make('SuperMarioBros-v0')
-env = JoypadSpace(env, SIMPLE_MOVEMENT)
-
 if loading:
     model.load_state_dict(torch.load(serialize_path))
 
 if perform_train:
-    train(model, training_steps, gpu, env, learning_rate, gamma, epsilon, headless)
+    train(model, training_steps, gpu, learning_rate, gamma, epsilon, headless)
 
 if trial_run:
-    test(model, testing_steps, gpu, env)
+    test(model, testing_steps, gpu)
