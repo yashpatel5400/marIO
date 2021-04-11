@@ -234,6 +234,7 @@ def test_pick_action() -> None:
 
 writer = SummaryWriter(comment='_CartPole_target_period_20_lr_0001_batchnorm_huber_loss_target_update_200_grad_clamp')
 
+run_gpu = False
 epochs = 10_000
 epsilon = 0.5  # Epsilon-greedy: Chance of choosing random action
 gamma = 0.999  # Discount factor of future rewards
@@ -251,6 +252,8 @@ env.reset()
 
 # Set up model
 qmodel = QModel()  # Used to act and generate expected Q values
+if run_gpu:
+    qmodel.cuda()
 # Used to predict value of rest of episode (actual Q-value)
 # - We will update it periodically (target_update_period)
 # - This reduces variance
@@ -267,11 +270,15 @@ steps_taken = 0
 screen = get_screen(env)
 state = screen - screen
 for epoch in range(epochs):
+
+    print(epoch)
     if epoch % target_update_period == 0:
         target_qmodel = copy.deepcopy(qmodel)
     if epochs > 1000 and epoch % 200 == 0:
         print(f"EPOCH {epoch}")
     # plot_screen(state)  # Debug: ensure that the states look like valid differences (they do)
+    if run_gpu:
+        state = state.cuda()
     q_s = qmodel.forward(x=state).flatten()
     a = pick_action(q_s=q_s, epsilon=epsilon)
 
@@ -280,6 +287,8 @@ for epoch in range(epochs):
 
     next_screen = get_screen(env)
     next_state = next_screen - screen
+    if run_gpu:
+        next_state = next_state.cuda()
 
     replay_buffer.add(experience=Experience(state=state, action=a, reward=reward, next_state=next_state, done=done))
     if epoch > batch_size:  # Wait until we have enough experiences for a full batch
@@ -295,10 +304,17 @@ for epoch in range(epochs):
         # Calculate target Q-values
         q_sp = target_qmodel.forward(x=next_states).max(axis=1).values  # Shape (batch_size,)
         # Value is zero when state is terminal
-        q_sp = torch.where(Tensor(dones).to(bool), torch.zeros_like(q_sp), q_sp)
+        if run_gpu:
+            q_sp = torch.where(Tensor(dones).to(bool), torch.zeros_like(q_sp).cpu(), q_sp.cpu())
+        else:
+            q_sp = torch.where(Tensor(dones).to(bool), torch.zeros_like(q_sp), q_sp)
         q_sa_new = Tensor(rewards) + gamma * q_sp
 
-        loss = loss_fn(q_sa_old, q_sa_new)
+        if run_gpu:
+            loss = loss_fn(q_sa_old.cpu(), q_sa_new.cpu())
+        else:
+            loss = loss_fn(q_sa_old, q_sa_new)
+
         writer.add_scalar("loss", loss, epoch)
         qmodel.zero_grad()
         loss.backward()
