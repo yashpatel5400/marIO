@@ -8,6 +8,7 @@ from torch import nn, Tensor
 import copy
 
 import gym
+import keyboard
 
 import random
 import time
@@ -40,7 +41,7 @@ run_train = True
 run_test = True
 
 test_epochs = 1_000
-epochs = 30_000
+epochs = 100_000
 epsilon = 0.5  # Epsilon-greedy: Chance of choosing random action
 gamma = 0.999  # Discount factor of future rewards
 lr = 0.0001
@@ -202,10 +203,10 @@ class QModel(nn.Module):
         out: (1, 2,)  - 2 possible actions
         """
         x = self.conv1(x)
-        x = self.bn1(x)
+        # x = self.bn1(x)
         x = self.relu1(x)
         x = self.conv2(x)
-        x = self.bn2(x)
+        # x = self.bn2(x)
         x = self.relu2(x)
         x = self.flatten(x)
         return self.linear(x)
@@ -256,13 +257,16 @@ def train(qmodel):
     # loss_fn = nn.functional.smooth_l1_loss
 
     optimizer = torch.optim.Adam(params=qmodel.parameters(), lr=lr)
-    
+
     steps_taken = 0
     screen = get_screen(env)
     state = screen - screen
     for epoch in range(epochs):
 
         print(epoch)
+        if keyboard.is_pressed('b'):
+            break
+
         if epoch % target_update_period == 0:
             target_qmodel = copy.deepcopy(qmodel)
         if epochs > 1000 and epoch % 200 == 0:
