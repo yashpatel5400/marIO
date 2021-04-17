@@ -35,6 +35,7 @@ test_epochs = 100
 lr = 0.001
 gamma = 0.99
 epsilon = 0.99
+epsilon_decay = 0.75
 epsilon_decay_step = 100
 target_model_step = 50
 replay_size = 25
@@ -52,15 +53,16 @@ done = True
 
 for epoch in range(train_epochs):
     replay_buffer = []
+
+    if epoch > 0 and epoch % epsilon_decay_step == 0: 
+        epsilon *= epsilon_decay
+
+    if epoch > 0 and epoch % target_model_step == 0: 
+        target_model = copy.deepcopy(model)
+
     for _ in range(replay_size):
         if done:
             state = env.reset()
-
-        if epoch > 0 and epoch % epsilon_decay_step == 0: 
-            epsilon /= 2
-
-        if epoch > 0 and epoch % target_model_step == 0: 
-            target_model = copy.deepcopy(model)
 
         qs = model(to_tensor(state, use_gpu))
         if random.random() < epsilon:
@@ -94,6 +96,6 @@ for epoch in range(train_epochs):
 
     qs = model(to_tensor(state, use_gpu))
     action = np.argmax(from_tensor(qs)[0])
-    state, _, _, _ = env.step(action=action)
+    state, _, done, _ = env.step(action=action)
 
     env.render()
