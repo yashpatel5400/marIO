@@ -38,7 +38,8 @@ epsilon = 0.99
 epsilon_decay = 0.75
 epsilon_decay_step = 100
 target_model_step = 50
-replay_size = 25
+replay_size = 1_00
+minibatch_size = 25
 
 model = Network()
 if use_gpu:
@@ -70,22 +71,21 @@ for epoch in range(train_epochs):
         else:
             action = np.argmax(from_tensor(qs)[0])
 
-        state, reward, done, _ = env.step(action=action)
-        next_qs = target_model(to_tensor(state, use_gpu))
-        desired = reward + gamma * torch.max(next_qs)
-        actual  = qs[action]
+        # buffer holds (state, action, reward, next_state)
+        next_state, reward, done, _ = env.step(action=action)
+        replay_buffer.append((state, action, reward, next_state))
+        env.render()
 
-        replay_buffer.append((actual, desired))
-
-    sample = random.randint(0, len(replay_buffer) - 1)
-    actual, desired = replay_buffer[sample]
-    loss = loss_fn(actual, desired)
-
+    random_sample = np.random.random_sample((minibatch_size,)) * replay_size
+    random_sample = [int(sample) for sample in random_sample]
+    minibatch = [replay_buffer[idx] for idx in random_sample]
+    X = torch.stack([model(to_tensor(state, use_gpu))[action] for (state, action, _, _) in minibatch])
+    Y = torch.stack([reward + gamma * torch.max(target_model(to_tensor(next_state, use_gpu))) for (_, _, reward, next_state) in minibatch])
+    
+    loss = loss_fn(X, Y)
     model.zero_grad()
     loss.backward()
     optimizer.step()
-
-    env.render()
 
     print(f"Epoch [{epoch}/{train_epochs}]: {loss}")
 
